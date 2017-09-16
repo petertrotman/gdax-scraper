@@ -1,0 +1,12 @@
+hash: a8407ff935c8b597a796ffdb9aebf9ef1cff7eff39db09f911ca30188d4e8536
+updated: 2017-09-16T18:01:37.463555159+01:00
+imports:
+- name: github.com/gorilla/websocket
+  version: ea4d1f681babbce9545c9c5f3d5194a789c89f5b
+- name: github.com/lib/pq
+  version: e42267488fe361b9dc034be7a6bffef5b195bceb
+- name: github.com/pkg/errors
+  version: 645ef00459ed84a119197bfb8d8205042c6df63d
+- name: github.com/preichenberger/go-coinbase-exchange
+  version: a283500f7727cf578eaa8874c417ad84805baec4
+testImports: []

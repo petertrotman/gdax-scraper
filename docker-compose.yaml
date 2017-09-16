@@ -1,0 +1,22 @@
+version: '2'
+services:
+  app:
+    build: .
+    depends_on:
+      - db
+    links:
+      - db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=postgres
+      - ENV=development
+
+  db:
+    image: postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=postgres
