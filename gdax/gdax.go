@@ -63,15 +63,16 @@ func Subscribe(channels []Channel) (chan MessageResult, error) {
 	return ch, nil
 }
 
-// OrderBook is the struct returned by the snapshot
-type OrderBook struct {
-	Sequence int64      `json:"sequence"`
-	Bids     [][]string `json:"bids"` // [[price, size, order_id], ...]
-	Asks     [][]string `json:"asks"` // [[price, size, order_id], ...]
+// Snapshot is the struct returned by the snapshot
+type Snapshot struct {
+	ProductID string
+	Sequence  int64      `json:"sequence"`
+	Bids      [][]string `json:"bids"` // [[price, size, order_id], ...]
+	Asks      [][]string `json:"asks"` // [[price, size, order_id], ...]
 }
 
-// Snapshot returns the current snapshot of the orderbook for the given productID
-func Snapshot(productID string) (*OrderBook, error) {
+// GetSnapshot returns the current snapshot of the orderbook for the given productID
+func GetSnapshot(productID string) (*Snapshot, error) {
 	addr := fmt.Sprintf("https://api.gdax.com/products/%s/book?level=3", productID)
 	client := &http.Client{Timeout: time.Second * 3}
 
@@ -89,32 +90,21 @@ func Snapshot(productID string) (*OrderBook, error) {
 		return nil, errors.Wrap(err, "could not read from response body")
 	}
 
-	var orderBook OrderBook
-	if err = json.Unmarshal(buf, &orderBook); err != nil {
+	var snapshot Snapshot
+	snapshot.ProductID = productID
+	if err = json.Unmarshal(buf, &snapshot); err != nil {
 		return nil, errors.Wrap(err, "could not decode response body")
 	}
 
-	return &orderBook, nil
+	return &snapshot, nil
 }
 
-// OrderBookResult is the type returned throught eh Snapshots channel
-type OrderBookResult struct {
-	OrderBooks map[string]*OrderBook
-	Errors     []error
-}
-
-type productIDOrderBook struct {
-	ProductID string
-	OrderBook *OrderBook
-}
-
-// Snapshots retrieves all the snapshots for the given product IDs, whilst respecting API rate limits
-func Snapshots(productIDs []string) <-chan OrderBookResult {
+// GetSnapshots retrieves all the snapshots for the given product IDs, whilst respecting API rate limits
+func GetSnapshots(productIDs []string) (map[string]*Snapshot, error) {
 	const requestsPerSecond int = 3 // GDAX API rate limit
 
 	ticker := time.NewTicker(1 * time.Second)
-	resultChan := make(chan OrderBookResult)
-	resCh := make(chan productIDOrderBook)
+	resCh := make(chan Snapshot)
 	errCh := make(chan error)
 
 	go func() {
@@ -122,34 +112,25 @@ func Snapshots(productIDs []string) <-chan OrderBookResult {
 			var end = int(math.Min(float64(i+requestsPerSecond), float64(len(productIDs))))
 			for _, productID := range productIDs[i:end] {
 				go func(_productID string) {
-					orderBook, err := Snapshot(_productID)
+					snapshot, err := GetSnapshot(_productID)
 					if err != nil {
 						errCh <- err
 					}
-					resCh <- productIDOrderBook{_productID, orderBook}
+					resCh <- snapshot
 				}(productID)
 			}
 			<-ticker.C
 		}
 	}()
 
-	go func() {
-		var errs []error
-		res := make(map[string]*OrderBook)
-	loop:
-		for {
-			select {
-			case r := <-resCh:
-				res[r.ProductID] = r.OrderBook
-				if len(res) == len(productIDs) {
-					break loop
-				}
-			case err := <-errCh:
-				errs = append(errs, err)
-			}
+	result := make(map[string]*Snapshot)
+	for _ = range productIDs {
+		select {
+		case s := <-resCh:
+			result[s.ProductID] = s
+		case err := <-errCh:
+			return errors.Wrap(err, "could not get snapshots")
 		}
-		resultChan <- OrderBookResult{res, errs}
-	}()
-
-	return resultChan
+	}
+	return result, nil
 }
