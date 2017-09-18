@@ -71,10 +71,16 @@ type Snapshot struct {
 	Asks      [][]string `json:"asks"` // [[price, size, order_id], ...]
 }
 
+// SnapshotResult wraps a snapshot and an error
+type SnapshotResult struct {
+	Snapshot *Snapshot
+	Error    error
+}
+
 // GetSnapshot returns the current snapshot of the orderbook for the given productID
 func GetSnapshot(productID string) (*Snapshot, error) {
 	addr := fmt.Sprintf("https://api.gdax.com/products/%s/book?level=3", productID)
-	client := &http.Client{Timeout: time.Second * 3}
+	client := &http.Client{Timeout: time.Second * 10}
 
 	response, err := client.Get(addr)
 	if err != nil {
@@ -100,11 +106,11 @@ func GetSnapshot(productID string) (*Snapshot, error) {
 }
 
 // GetSnapshots retrieves all the snapshots for the given product IDs, whilst respecting API rate limits
-func GetSnapshots(productIDs []string) (map[string]*Snapshot, error) {
+func GetSnapshots(productIDs []string) (chan *Snapshot, chan error) {
 	const requestsPerSecond int = 3 // GDAX API rate limit
 
 	ticker := time.NewTicker(1 * time.Second)
-	resCh := make(chan Snapshot)
+	resCh := make(chan *Snapshot)
 	errCh := make(chan error)
 
 	go func() {
@@ -115,22 +121,37 @@ func GetSnapshots(productIDs []string) (map[string]*Snapshot, error) {
 					snapshot, err := GetSnapshot(_productID)
 					if err != nil {
 						errCh <- err
+					} else {
+						resCh <- snapshot
 					}
-					resCh <- snapshot
 				}(productID)
 			}
 			<-ticker.C
 		}
 	}()
 
-	result := make(map[string]*Snapshot)
-	for _ = range productIDs {
-		select {
-		case s := <-resCh:
-			result[s.ProductID] = s
-		case err := <-errCh:
-			return errors.Wrap(err, "could not get snapshots")
+	return resCh, errCh
+}
+
+// GetSnapshotsEvery runs GetSnapshots at a specified interval
+func GetSnapshotsEvery(productIDs []string, interval time.Duration) chan SnapshotResult {
+	result := make(chan SnapshotResult)
+	t := time.NewTicker(interval)
+
+	go func() {
+		for {
+			ch, errs := GetSnapshots(productIDs)
+			for _ = range productIDs {
+				select {
+				case s := <-ch:
+					result <- SnapshotResult{s, nil}
+				case err := <-errs:
+					result <- SnapshotResult{nil, errors.Wrap(err, "could not get snapshot")}
+				}
+			}
+			<-t.C
 		}
-	}
-	return result, nil
+	}()
+
+	return result
 }

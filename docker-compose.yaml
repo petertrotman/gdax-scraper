@@ -6,12 +6,12 @@ services:
       - db
     links:
       - db
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_HOST=db
-      - POSTGRES_DB=postgres
-      - ENV=development
+    command: [
+      # "--verbose",
+      "--database", "postgres://postgres:postgres@db/postgres?sslmode=disable",
+      "--snapshots-interval", "1",
+      "--batch",
+    ]
 
   db:
     image: postgres
